@@ -5,6 +5,13 @@ import Evaluator from './Evaluator.jsx';
 
 const ADMIN = { id: 'admin', nombre: 'Administrador', user: 'admin', pass: 'admin123', rol: 'admin' };
 
+const loadUsers = () => {
+  const stored = load('users', [ADMIN]);
+  if (!Array.isArray(stored)) return [ADMIN];
+  const otherUsers = stored.filter((u) => u?.id !== 'admin' && u?.user !== 'admin');
+  return [ADMIN, ...otherUsers];
+};
+
 function Login({ users, onLogin }) {
   const [u, setU] = useState('');
   const [p, setP] = useState('');
@@ -30,7 +37,7 @@ function Login({ users, onLogin }) {
 }
 
 export default function App() {
-  const [users, setUsers] = useState(() => load('users', [ADMIN]));
+  const [users, setUsers] = useState(loadUsers);
   const [subjects, setSubjects] = useState(() => load('subjects', []));
   const [cfg, setCfg] = useState(() => load('cfg', { provider: 'openai', model: PROVIDERS.openai.model, key: '' }));
   const [meId, setMeId] = useState(() => load('me', null));

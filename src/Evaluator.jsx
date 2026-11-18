@@ -8,18 +8,31 @@ const RUB0 = [
   ['Redacción', 'Redacción clara, coherente y con vocabulario adecuado.'],
   ['Síntesis', 'Condensa la información esencial sin copiar literalmente.'],
 ];
-const newTask = (asignatura, titulo) => ({
-  id: uid(), asignatura, titulo, descripcion: '', objetivos: '', instrucciones: '', base: '', works: [],
+const getAssignedParallels = (subject, teacherId) => {
+  if (Array.isArray(subject?.paralelos)) {
+    return subject.paralelos.filter((parallel) => parallel.docente === teacherId);
+  }
+  if (typeof subject?.paralelos === 'string' && (subject.docentes || []).includes(teacherId)) {
+    return subject.paralelos.split(',').map((nombre) => nombre.trim()).filter(Boolean)
+      .map((nombre) => ({ id: nombre, nombre }));
+  }
+  return [];
+};
+const newTask = (asignatura, paralelo, titulo) => ({
+  id: uid(), asignatura, paralelo, titulo, descripcion: '', objetivos: '', instrucciones: '', base: '', works: [],
   rubric: RUB0.map(([nombre, descripcion]) => ({ id: uid(), nombre, descripcion, puntos: 5 })),
 });
 const ESTADO = { pendiente: 'Pendiente', evaluando: 'Evaluando…', evaluado: 'Evaluado', error: 'Con error' };
 
 export default function Evaluator({ me, subjects, cfg, view, go }) {
-  const mine = subjects.filter((s) => s.docentes.includes(me.id));
+  const mine = subjects.filter((s) =>
+    (s.docentes || []).includes(me.id) ||
+    getAssignedParallels(s, me.id).length > 0
+  );
   const key = 'tasks_' + me.id;
   const [tasks, setTasks] = useState(() => load(key, []));
   const [cur, setCur] = useState(null);
-  const [nt, setNt] = useState({ asignatura: '', titulo: '' });
+  const [nt, setNt] = useState({ asignatura: '', paralelo: '', titulo: '' });
   const [filtro, setFiltro] = useState('');
   useEffect(() => {
     save(key, tasks.map((t) => ({ ...t, works: t.works.map((w) => ({ ...w, estado: w.estado === 'evaluando' ? 'pendiente' : w.estado, texto: (w.texto || '').slice(0, 20000) })) })));
@@ -29,8 +42,8 @@ export default function Evaluator({ me, subjects, cfg, view, go }) {
   const updW = (id, wid, p) => setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, works: t.works.map((w) => (w.id === wid ? { ...w, ...p } : w)) } : t)));
   const create = (e) => {
     e.preventDefault();
-    const t = newTask(nt.asignatura || filtro, nt.titulo.trim());
-    setTasks([t, ...tasks]); setNt({ asignatura: '', titulo: '' }); setCur(t.id);
+    const t = newTask(nt.asignatura || filtro, nt.paralelo, nt.titulo.trim());
+    setTasks([t, ...tasks]); setNt({ asignatura: '', paralelo: '', titulo: '' }); setCur(t.id);
   };
   if (view === 'misasig') return (
     <div className="stack">
@@ -53,7 +66,19 @@ export default function Evaluator({ me, subjects, cfg, view, go }) {
   );
   const t = tasks.find((x) => x.id === cur);
   const shown = filtro ? tasks.filter((x) => x.asignatura === filtro) : tasks;
-  if (t) return <Tarea t={t} upd={(p) => upd(t.id, p)} updW={(wid, p) => updW(t.id, wid, p)} cfg={cfg} back={() => setCur(null)} />;
+  const selectedSubject = mine.find((s) => s.nombre === (nt.asignatura || filtro));
+  const creationParallels = getAssignedParallels(selectedSubject, me.id);
+  if (t) {
+    const taskSubject = mine.find((s) => s.nombre === t.asignatura);
+    return <Tarea
+      t={t}
+      parallelOptions={getAssignedParallels(taskSubject, me.id)}
+      upd={(p) => upd(t.id, p)}
+      updW={(wid, p) => updW(t.id, wid, p)}
+      cfg={cfg}
+      back={() => setCur(null)}
+    />;
+  }
 
   return (
     <div className="stack">
@@ -64,8 +89,19 @@ export default function Evaluator({ me, subjects, cfg, view, go }) {
       ) : (
         <form className="panel row" onSubmit={create}>
           <label>Asignatura
-            <select required value={nt.asignatura || filtro} onChange={(e) => setNt({ ...nt, asignatura: e.target.value })}>
+            <select required value={nt.asignatura || filtro} onChange={(e) => setNt({ ...nt, asignatura: e.target.value, paralelo: '' })}>
               <option value="">Selecciona…</option>{mine.map((s) => <option key={s.id}>{s.nombre}</option>)}
+            </select>
+          </label>
+          <label>Paralelo
+            <select
+              required={creationParallels.length > 0}
+              disabled={!creationParallels.length}
+              value={nt.paralelo}
+              onChange={(e) => setNt({ ...nt, paralelo: e.target.value })}
+            >
+              <option value="">{creationParallels.length ? 'Selecciona…' : 'Sin paralelos asignados'}</option>
+              {creationParallels.map((p) => <option key={p.id} value={p.nombre}>{p.nombre}</option>)}
             </select>
           </label>
           <label className="grow">Título de la nueva tarea<input required value={nt.titulo} onChange={(e) => setNt({ ...nt, titulo: e.target.value })} /></label>
@@ -83,6 +119,7 @@ export default function Evaluator({ me, subjects, cfg, view, go }) {
         {shown.map((x) => (
           <div className="card" key={x.id}>
             <span className="tag">{x.asignatura}</span>
+            {x.paralelo && <span className="tag">{x.paralelo}</span>}
             <h3>{x.titulo}</h3>
             <p className="muted">{x.works.filter((w) => w.res).length} de {x.works.length} trabajos evaluados</p>
             <div className="row">
@@ -96,7 +133,7 @@ export default function Evaluator({ me, subjects, cfg, view, go }) {
   );
 }
 
-function Tarea({ t, upd, updW, cfg, back }) {
+function Tarea({ t, parallelOptions, upd, updW, cfg, back }) {
   const [step, setStep] = useState(1);
   const [sel, setSel] = useState({});
   const [open, setOpen] = useState(null);
@@ -157,6 +194,7 @@ function Tarea({ t, upd, updW, cfg, back }) {
       <div className="head">
         <button className="btn ghost" onClick={back}>← Volver a mis tareas</button>
         <h1>{t.titulo}</h1><span className="tag">{t.asignatura}</span>
+        {t.paralelo && <span className="tag">{t.paralelo}</span>}
       </div>
       <div className="tabs">
         {['Contexto', 'Rúbrica', 'Trabajos y resultados'].map((l, i) => <button key={l} className={step === i + 1 ? 'on' : ''} onClick={() => setStep(i + 1)}>{i + 1}. {l}</button>)}
@@ -165,6 +203,16 @@ function Tarea({ t, upd, updW, cfg, back }) {
       {step === 1 && (
         <div className="panel stack">
           <label>Título de la tarea<input value={t.titulo} onChange={(e) => upd({ titulo: e.target.value })} /></label>
+          <label>Paralelo
+            <select
+              required={parallelOptions.length > 0}
+              value={parallelOptions.some((p) => p.nombre === t.paralelo) ? t.paralelo : ''}
+              onChange={(e) => upd({ paralelo: e.target.value })}
+            >
+              <option value="">{parallelOptions.length ? 'Selecciona el paralelo…' : 'No tienes paralelos asignados para esta materia'}</option>
+              {parallelOptions.map((p) => <option key={p.id} value={p.nombre}>{p.nombre}</option>)}
+            </select>
+          </label>
           <label>Descripción de la tarea<textarea rows={2} value={t.descripcion} onChange={(e) => upd({ descripcion: e.target.value })} /></label>
           <div className="grid2">
             <label>Objetivos<textarea rows={3} value={t.objetivos} onChange={(e) => upd({ objetivos: e.target.value })} /></label>
@@ -175,7 +223,11 @@ function Tarea({ t, upd, updW, cfg, back }) {
           </label>
           {msg && <p className="error">{msg}</p>}
           <div className="row between"><label className="btn">Cargar PDF o TXT<input type="file" accept=".pdf,.txt" hidden onChange={loadBase} /></label>
-            <button className="btn primary" onClick={() => setStep(2)}>Continuar a la rúbrica</button></div>
+            <button
+              className="btn primary"
+              onClick={() => setStep(2)}
+              disabled={parallelOptions.length > 0 && !parallelOptions.some((p) => p.nombre === t.paralelo)}
+            >Continuar a la rúbrica</button></div>
         </div>
       )}
 

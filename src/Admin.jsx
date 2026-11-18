@@ -5,9 +5,21 @@ export default function Admin({ sec, users, setUsers, subjects, setSubjects, cfg
   const [d, setD] = useState(cfg);
   const [t, setT] = useState(null);
   const [nu, setNu] = useState({ nombre: '', user: '', pass: '' });
-  const [ns, setNs] = useState({ nombre: '', docente: '' });
+  const [ns, setNs] = useState({ nombre: '', docente: '', paralelos: '' });
+  const [newParallel, setNewParallel] = useState({});
   const docentes = users.filter((u) => u.rol === 'docente');
   const dname = (id) => users.find((u) => u.id === id)?.nombre || '';
+  const subjectParallels = (subject) => {
+    if (Array.isArray(subject.paralelos)) return subject.paralelos;
+    if (typeof subject.paralelos === 'string' && subject.paralelos.trim()) {
+      return subject.paralelos.split(',').map((nombre) => ({
+        id: uid(),
+        nombre: nombre.trim(),
+        docente: '',
+      })).filter((p) => p.nombre);
+    }
+    return [];
+  };
 
   const onKey = (v) => {
     const k = v.trim(); const p = detectProvider(k);
@@ -31,12 +43,64 @@ export default function Admin({ sec, users, setUsers, subjects, setSubjects, cfg
   const delUser = (id) => {
     if (!confirm('¿Eliminar este docente?')) return;
     setUsers(users.filter((u) => u.id !== id));
-    setSubjects(subjects.map((s) => ({ ...s, docentes: s.docentes.filter((x) => x !== id) })));
+    setSubjects(subjects.map((s) => ({
+      ...s,
+      docentes: (s.docentes || []).filter((x) => x !== id),
+      paralelos: subjectParallels(s).map((p) => p.docente === id ? { ...p, docente: '' } : p),
+    })));
   };
   const addSubject = (e) => {
     e.preventDefault();
-    setSubjects([...subjects, { id: uid(), nombre: ns.nombre.trim(), docentes: ns.docente ? [ns.docente] : [] }]);
-    setNs({ nombre: '', docente: '' });
+    const docentesAsignados = ns.docente ? [ns.docente] : [];
+    const paralelos = ns.paralelos
+      .split(',')
+      .map((nombre) => nombre.trim())
+      .filter(Boolean)
+      .map((nombre) => ({
+        id: uid(),
+        nombre,
+        docente: ns.docente,
+      }));
+    setSubjects([...subjects, {
+      id: uid(),
+      nombre: ns.nombre.trim(),
+      docentes: docentesAsignados,
+      paralelos,
+    }]);
+    setNs({ nombre: '', docente: '', paralelos: '' });
+  };
+  const addParallel = (sid) => {
+    const nombre = (newParallel[sid] || '').trim();
+    if (!nombre) return;
+    setSubjects(subjects.map((s) => {
+      if (s.id !== sid) return s;
+      const paralelos = subjectParallels(s);
+      if (paralelos.some((p) => p.nombre.toLowerCase() === nombre.toLowerCase())) return s;
+      return { ...s, paralelos: [...paralelos, { id: uid(), nombre, docente: '' }] };
+    }));
+    setNewParallel({ ...newParallel, [sid]: '' });
+  };
+  const setParallelTeacher = (sid, pid, docente) => {
+    setSubjects(subjects.map((s) => {
+      if (s.id !== sid) return s;
+      const paralelos = subjectParallels(s).map((p) => p.id === pid ? { ...p, docente } : p);
+      const docentesAsignados = [...new Set([
+        ...(s.docentes || []),
+        ...paralelos.map((p) => p.docente).filter(Boolean),
+      ])];
+      return { ...s, paralelos, docentes: docentesAsignados };
+    }));
+  };
+  const removeParallel = (sid, pid) => {
+    setSubjects(subjects.map((s) => {
+      if (s.id !== sid) return s;
+      const paralelos = subjectParallels(s).filter((p) => p.id !== pid);
+      const docentesAsignados = [...new Set([
+        ...(s.docentes || []),
+        ...paralelos.map((p) => p.docente).filter(Boolean),
+      ])];
+      return { ...s, paralelos, docentes: docentesAsignados };
+    }));
   };
   const assign = (sid, did) => setSubjects(subjects.map((s) => (s.id === sid && !s.docentes.includes(did) ? { ...s, docentes: [...s.docentes, did] } : s)));
   const unassign = (sid, did) => setSubjects(subjects.map((s) => (s.id === sid ? { ...s, docentes: s.docentes.filter((x) => x !== did) } : s)));
@@ -100,14 +164,15 @@ export default function Admin({ sec, users, setUsers, subjects, setSubjects, cfg
   return (
     <div className="stack">
       <div className="head"><h1>Asignaturas</h1><p className="muted">Crea asignaturas y elige qué docentes pueden trabajar en cada una.</p></div>
-      <form className="panel row" onSubmit={addSubject}>
-        <label className="grow">Nombre de la asignatura<input value={ns.nombre} onChange={(e) => setNs({ ...ns, nombre: e.target.value })} required /></label>
-        <label className="grow">Docente
+      <form className="panel grid4" onSubmit={addSubject}>
+        <label>Nombre de la asignatura<input value={ns.nombre} onChange={(e) => setNs({ ...ns, nombre: e.target.value })} required /></label>
+        <label>Docente
           <select value={ns.docente} onChange={(e) => setNs({ ...ns, docente: e.target.value })}>
             <option value="">{docentes.length ? 'Asignar después' : 'Primero crea un docente'}</option>
             {docentes.map((u) => <option key={u.id} value={u.id}>{u.nombre}</option>)}
           </select>
         </label>
+        <label>Paralelos<input value={ns.paralelos} onChange={(e) => setNs({ ...ns, paralelos: e.target.value })} placeholder="Ej: A, B, C" /></label>
         <button className="btn primary" type="submit">Crear asignatura</button>
       </form>
       {subjects.length === 0 && <div className="panel"><p className="muted">Aún no hay asignaturas. Crea la primera con el formulario de arriba.</p></div>}
@@ -115,16 +180,46 @@ export default function Admin({ sec, users, setUsers, subjects, setSubjects, cfg
         {subjects.map((s) => (
           <div className="card" key={s.id}>
             <h3>{s.nombre}</h3>
-            <div className="chips">
-              {s.docentes.length === 0 && <span className="muted">Sin docentes asignados</span>}
-              {s.docentes.map((id) => <span className="chip" key={id}>{dname(id)}<button aria-label={`Quitar a ${dname(id)}`} onClick={() => unassign(s.id, id)}>×</button></span>)}
+            <div className="parallel-list">
+              <label>Paralelos</label>
+              {subjectParallels(s).map((p) => (
+                <div className="parallel-row" key={p.id}>
+                  <input
+                    className="parallel-name"
+                    value={p.nombre}
+                    readOnly
+                    aria-label={`Paralelo ${p.nombre}`}
+                  />
+                  <select
+                    value={p.docente || ''}
+                    onChange={(e) => setParallelTeacher(s.id, p.id, e.target.value)}
+                  >
+                    <option value="">Asignar docente…</option>
+                    {docentes.map((u) => <option key={u.id} value={u.id}>{u.nombre}</option>)}
+                  </select>
+                  <button
+                    className="parallel-remove"
+                    type="button"
+                    aria-label={`Eliminar paralelo ${p.nombre}`}
+                    onClick={() => removeParallel(s.id, p.id)}
+                  >×</button>
+                </div>
+              ))}
+              <div className="parallel-row parallel-add">
+                <input
+                  value={newParallel[s.id] || ''}
+                  onChange={(e) => setNewParallel({ ...newParallel, [s.id]: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addParallel(s.id);
+                    }
+                  }}
+                  placeholder="Ej: A"
+                />
+                <button className="btn parallel-add-btn" type="button" onClick={() => addParallel(s.id)}>Agregar</button>
+              </div>
             </div>
-            <label>Asignar docente
-              <select value="" onChange={(e) => e.target.value && assign(s.id, e.target.value)}>
-                <option value="">Elegir docente…</option>
-                {docentes.filter((u) => !s.docentes.includes(u.id)).map((u) => <option key={u.id} value={u.id}>{u.nombre}</option>)}
-              </select>
-            </label>
             <button className="btn danger" onClick={() => confirm('¿Eliminar esta asignatura?') && setSubjects(subjects.filter((x) => x.id !== s.id))}>Eliminar asignatura</button>
           </div>
         ))}
