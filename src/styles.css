@@ -54,3 +54,4 @@ td.file{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowra
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 .cell{min-width:170px;padding:7px 9px}
 td select{margin-top:8px}
+td.r .btn{margin:0 4px}
