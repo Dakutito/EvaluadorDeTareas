@@ -139,6 +139,16 @@ function Tarea({ t, upd, updW, cfg, back }) {
     for (const w of list) await run(w);
     setBusy(false);
   };
+  const removeWork = (w) => {
+    if (!confirm(`¿Eliminar el trabajo "${w.archivo}"?`)) return;
+    upd((x) => ({ works: x.works.filter((item) => item.id !== w.id) }));
+    setSel((selected) => {
+      const next = { ...selected };
+      delete next[w.id];
+      return next;
+    });
+    if (open === w.id) setOpen(null);
+  };
   const chosen = works.filter((w) => sel[w.id]);
   const done = works.filter((w) => w.res);
 
@@ -217,6 +227,7 @@ function Tarea({ t, upd, updW, cfg, back }) {
                       <td className="r">
                         <button className="btn" disabled={busy} onClick={async () => { setBusy(true); await run(w); setBusy(false); }}>{w.res ? 'Reevaluar' : 'Evaluar'}</button>
                         {(w.res || w.error) && <button className="btn ghost" onClick={() => setOpen(open === w.id ? null : w.id)}>{open === w.id ? 'Ocultar' : 'Detalle'}</button>}
+                        <button className="btn danger" disabled={busy} onClick={() => removeWork(w)} aria-label={`Eliminar ${w.archivo}`}>Eliminar</button>
                       </td>
                     </tr>
                     {open === w.id && (
